@@ -14,7 +14,7 @@
   <img src="./healthme/READMEimg/GIF/태형/회원가입.gif" width="900" height="470">
 </div>
 <br>
- 
+  
 - 설문조사 / 설문조사 결과
 
 <div align="center">
