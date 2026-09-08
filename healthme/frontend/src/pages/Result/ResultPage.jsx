@@ -6,6 +6,7 @@ import CardBar from './CardBar';
 import NutrientInfo from './NutrientInfo';
 import InfluenceIcon from './InfluenceIcon';
 import TraitsSection from './TraitsSection';
+import { healthmeApiUrl } from "config/api";
 
 const ResultPage = () => {
   const navigate = useNavigate();
@@ -28,28 +29,40 @@ const ResultPage = () => {
     if (!loginUser) {
       alert("이 페이지는 로그인 후 이용 가능합니다.");
       navigate("/login");
+      return () => window.removeEventListener("scroll", handleScroll);
     }
-    axios.get("http://localhost:8090/healthme/survey/scores", {
+
+    axios.get(healthmeApiUrl("/survey/scores"), {
       params: { userid },
       withCredentials: true
     })
       .then(res => {
         const scores = res.data;
         return Promise.all([
-          axios.post("http://localhost:8090/healthme/result/summary", scores, { withCredentials: true }),
-          axios.post("http://localhost:8090/healthme/recommend", scores, { withCredentials: true })
+          axios.post(healthmeApiUrl("/result/summary"), scores, { withCredentials: true }),
+          axios.post(healthmeApiUrl("/recommend"), scores, { withCredentials: true })
         ]);
       })
       .then(([summaryRes, recommendRes]) => {
         setResultMap(summaryRes.data);
-        setRecommendations(recommendRes.data);
+        setRecommendations(toRecommendationList(recommendRes.data));
       })
       .catch(err => {
         console.error("요약/추천 API 실패", err);
       });
 
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [navigate]);
+
+  const toRecommendationList = (data) => {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.content)) return data.content;
+    if (Array.isArray(data?.data)) return data.data;
+
+    // TODO: 개발 확인용 로그입니다. 추천 API 응답 형식이 확정되면 운영 배포 전 삭제하세요.
+    console.warn("[Recommend API unexpected response]", data);
+    return [];
+  };
 
   const nutrientCards = [
     { name: "단백질", color: "red" },
@@ -72,9 +85,10 @@ const ResultPage = () => {
     { label: "유제품", desc: "이것은 예시4에 대한 설명입니다.", color: "#a672c2", img: "/img/categoryEtc.jpg", colorClass: "purple" }
   ];
 
+  const recommendationList = Array.isArray(recommendations) ? recommendations : [];
   const filtered = selectedIcon
-    ? recommendations.filter(r => r.category === selectedIcon.label).slice(0, 2)
-    : recommendations.slice(0, 2);
+    ? recommendationList.filter(r => r.category === selectedIcon.label).slice(0, 2)
+    : recommendationList.slice(0, 2);
 
   return (
     <div className="result-page">

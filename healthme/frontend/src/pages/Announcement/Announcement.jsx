@@ -12,6 +12,7 @@ import {
   Button,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { apiUrl } from "config/api";
 
 import "static/css/common/common.css";
 import "static/css/pages/Announcement.css";
@@ -83,7 +84,7 @@ export default function Announcement() {
             category === "전체"
               ? ""
               : "?category=" + encodeURIComponent(category);
-          const res = await axios.get("/api/notices" + query, {
+          const res = await axios.get(apiUrl("/api/notices" + query), {
             withCredentials: true,
           });
           setNotices(
@@ -105,7 +106,7 @@ export default function Announcement() {
 
   const handleOpenDetail = async (id) => {
     try {
-      const res = await axios.get("/api/notices/" + id, {
+      const res = await axios.get(apiUrl("/api/notices/" + id), {
         withCredentials: true,
       });
       setDetail(res.data);

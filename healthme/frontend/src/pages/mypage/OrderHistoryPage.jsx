@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { API_BASE, apiUrl } from "config/api";
 
 /* ------------------------------------------------------------------
    1. 상수 & 헬퍼
    ------------------------------------------------------------------ */
-const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:8090";
-
 /** 상대경로 → 절대 URL, 없으면 플레이스홀더 */
 const toImageSrc = (url) => {
   if (!url) return "/img/noimage.png";
@@ -40,7 +39,7 @@ export default function OrderHistoryPage() {
      ---------------------------------------------------------------- */
   const fetchUserInfo = async () => {
     if (!loginUser) return;
-    const res = await axios.get("/mypage/getuserinfo", {
+    const res = await axios.get(apiUrl("/mypage/getuserinfo"), {
       params: { id: loginUser.id },
       withCredentials: true,
     });
@@ -50,7 +49,7 @@ export default function OrderHistoryPage() {
 
   const fetchOrders = async () => {
     try {
-      const res = await axios.get("/mypage/getbuy", { withCredentials: true });
+      const res = await axios.get(apiUrl("/mypage/getbuy"), { withCredentials: true });
       console.log("mypage/getbuy", res.data);
       setOrders(res.data);
     } catch (err) {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import "static/css/pages/approval.css";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
+import { apiUrl, healthmeApiUrl } from "config/api";
 
 export default function ApprovalPage() {
   const { state } = useLocation();
@@ -17,6 +18,8 @@ export default function ApprovalPage() {
   const [phoneFirst, setPhoneFirst] = useState("010");
   const [phoneMiddle, setPhoneMiddle] = useState("");
   const [phoneLast, setPhoneLast] = useState("");
+  const [defaultAddressId, setDefaultAddressId] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // 사용자/등급·할인 계산
   const loginUser = JSON.parse(localStorage.getItem("loginUser"));
@@ -49,10 +52,11 @@ export default function ApprovalPage() {
     const fetchDefaultAddress = async () => {
       if (!isDefaultAddress) return;
       try {
-        const res = await axios.get("/approval/default-address", {
+        const res = await axios.get(apiUrl("/approval/default-address"), {
           withCredentials: true,
         });
         const data = res.data;
+        setDefaultAddressId(data.address_id || null);
         setRecipient(data.recipient || "");
         setZip(data.zonecode || "");
         setAddress(data.address || "");
@@ -68,7 +72,7 @@ export default function ApprovalPage() {
       }
     };
     fetchDefaultAddress();
-  }, [isDefaultAddress, loginUser]);
+  }, [isDefaultAddress]);
 
   const clearAddressFields = () => {
     setZip("");
@@ -79,8 +83,22 @@ export default function ApprovalPage() {
     setPhoneLast("");
   };
 
+  const requestPortOnePayment = (paymentData) =>
+    new Promise((resolve) => {
+      const { IMP } = window;
+      IMP.request_pay(paymentData, resolve);
+    });
+
+  // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+  const logDevSnapshot = (label, value) => {
+    const snapshot = value == null ? value : JSON.parse(JSON.stringify(value));
+    console.log(label, snapshot);
+  };
+
   // 주문 처리
   const handleOrderSubmit = async () => {
+    if (isSubmitting) return;
+
     if (
       !recipient.trim() ||
       !zip.trim() ||
@@ -93,72 +111,106 @@ export default function ApprovalPage() {
 
     const combinedRecipientPhone = `${phoneFirst}-${phoneMiddle}-${phoneLast}`;
 
-    const newAddress = {
-      recipient,
-      zip,
-      address,
-      addressDetail,
-      recipientPhone: combinedRecipientPhone,
-    };
-
-    const orderData = {
-      address: isDefaultAddress ? null : newAddress, // 기본 배송지 사용 시 null
+    const prepareData = {
+      addressId: isDefaultAddress ? defaultAddressId : null,
+      address: isDefaultAddress
+        ? null
+        : {
+            recipient,
+            zonecode: zip,
+            address,
+            addressDetail,
+            tel: combinedRecipientPhone,
+          },
       items: items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
-        productName: item.productName,
-        price: item.price,
-        discountPrice: item.salprice,
-        productImageUrl: item.imageUrl,
       })),
-      totalPrice: totalAmount,
       paymentMethod: "card",
     };
 
     try {
-      if (window.IMP) {
-        const { IMP } = window;
-        IMP.init("imp32678348");
-        IMP.request_pay(
-          {
-            pg: "nice_v2",
-            pay_method: "card",
-            merchant_uid: `order_${Date.now()}`,
-            name: items.map((i) => i.productName).join(", "),
-            amount: orderData.totalPrice,
-            buyer_name: orderData.address?.recipient || recipient,
-            buyer_tel:
-              orderData.address?.recipientPhone || combinedRecipientPhone,
-            buyer_addr: orderData.address?.address || address,
-            buyer_postcode: orderData.address?.zip || zip,
-          },
-          async (rsp) => {
-            if (rsp.error_code) {
-              alert(`결제 실패: ${rsp.error_msg || "알 수 없는 오류"}`);
-            } else {
-              if (!rsp.imp_uid) {
-                alert("결제 처리 중 오류 발생 (imp_uid 누락)");
-                return;
-              }
-              alert("결제가 완료되었습니다.");
-              navigate("/complete");
+      setIsSubmitting(true);
 
-              try {
-                // 주소를 먼저 저장하지 않고, 여기서 바로 주문만 저장
-                await axios.post("/healthme/purchase", {
-                  ...orderData,
-                  imp_uid: rsp.imp_uid,
-                  merchant_uid: rsp.merchant_uid,
-                });
-              } catch (backendErr) {
-                console.error("백엔드 주문 실패:", backendErr);
-              }
-            }
-          }
-        );
+      if (!window.IMP) {
+        alert("PortOne 결제 모듈을 불러오지 못했습니다.");
+        return;
       }
+
+      // 서버가 상품 DB, 사용자 등급, 재고 기준으로 금액과 merchant_uid를 확정한다.
+      const prepareRes = await axios.post(
+        healthmeApiUrl("/payments/prepare"),
+        prepareData,
+        { withCredentials: true }
+      );
+      const preparedPayment = prepareRes.data;
+
+      const { IMP } = window;
+      IMP.init("imp32678348");
+
+      const portOnePaymentData = {
+        pg: "nice_v2",
+        pay_method: "card",
+        merchant_uid: preparedPayment.merchantUid,
+        name: preparedPayment.orderName,
+        amount: preparedPayment.amount,
+        buyer_name: recipient,
+        buyer_tel: combinedRecipientPhone,
+        buyer_addr: address,
+        buyer_postcode: zip,
+      };
+
+      logDevSnapshot("[PortOne request_pay payload]", portOnePaymentData);
+
+      const rsp = await requestPortOnePayment(portOnePaymentData);
+
+      logDevSnapshot("[PortOne request_pay response]", rsp);
+
+      if (!rsp) {
+        alert("결제 결과를 확인하지 못했습니다.");
+        return;
+      }
+
+      if (rsp.error_code || rsp.success === false) {
+        alert(`결제 실패: ${rsp.error_msg || "알 수 없는 오류"}`);
+        return;
+      }
+
+      if (!rsp.imp_uid) {
+        alert("결제 처리 중 오류 발생 (imp_uid 누락)");
+        return;
+      }
+
+      const completePayload = {
+        impUid: rsp.imp_uid,
+        merchantUid: rsp.merchant_uid || preparedPayment.merchantUid,
+      };
+
+      logDevSnapshot("[HealthMe payment complete payload]", completePayload);
+
+      // 서버가 imp_uid로 PortOne 결제 단건을 다시 조회하고 DB 주문과 비교한다.
+      const completeRes = await axios.post(
+        healthmeApiUrl("/payments/complete"),
+        completePayload,
+        { withCredentials: true }
+      );
+
+      logDevSnapshot("[HealthMe payment complete response]", completeRes.data);
+
+      alert("결제가 완료되었습니다.");
+      navigate("/complete", {
+        state: {
+          orderId: completeRes.data.orderId,
+          merchantUid: completeRes.data.merchantUid,
+        },
+      });
     } catch (err) {
       console.error("주문 처리 오류:", err);
+      // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+      console.error("[HealthMe payment error response]", err.response?.status, err.response?.data);
+      alert(err.response?.data || "주문 처리 중 오류가 발생했습니다.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -287,9 +339,9 @@ export default function ApprovalPage() {
           <h2>주문 상품</h2>
           {items.map((item, idx) => (
             <div className="approval-product-item" key={idx}>
-              <img src={item.imageUrl} alt={item.productName} />
+              <img src={item.imageUrl} alt={item.productName || item.name} />
               <div className="approval-product-info">
-                <div>{item.productName}</div>
+                <div>{item.productName || item.name}</div>
                 <div>{item.quantity}개</div>
                 <div>정가: {(item.price || 0).toLocaleString()}원</div>
                 <div>
@@ -339,8 +391,9 @@ export default function ApprovalPage() {
           type="button"
           className="approval-button"
           onClick={handleOrderSubmit}
+          disabled={isSubmitting}
         >
-          주문하기
+          {isSubmitting ? "결제 준비 중..." : "주문하기"}
         </button>
       </section>
     </main>

@@ -11,7 +11,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/healthme/nutrients")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "${app.frontend-url}")
 public class ProductNutrientController {
 
     private final ProductNutrientRepository nutrientRepository;

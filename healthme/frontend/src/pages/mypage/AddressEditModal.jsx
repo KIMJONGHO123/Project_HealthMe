@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import DaumPostcodeModal from "./DaumPostcodeModal";
 import axios from "axios";
+import { apiUrl } from "config/api";
 export default function AddressEditModal({
   open,
   onClose,
@@ -44,7 +45,7 @@ export default function AddressEditModal({
     try {
       console.log("updateaddress", updateaddress);
       await axios.post(
-        `/mypage/updateAddr?addr_id=${updateaddress.address_id}`,
+        apiUrl(`/mypage/updateAddr?addr_id=${updateaddress.address_id}`),
         user,
         {
           // 각각의 id에 맞는 주소를 수정

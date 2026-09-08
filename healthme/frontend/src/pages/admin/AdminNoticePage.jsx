@@ -19,6 +19,7 @@ import {
   DialogActions,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
+import { apiUrl } from "config/api";
 
 // 모달창
 function NoticeModal({ open, onClose, onSave, init }) {
@@ -98,25 +99,25 @@ export default function AdminNoticePage() {
 
   const fetchRows = () =>
     axios
-      .get("/api/notices", { withCredentials: true })
+      .get(apiUrl("/api/notices"), { withCredentials: true })
       .then((r) => setRows(r.data))
       .catch((e) => console.error("공지 조회 실패", e));
 
   const createRow = (dto) =>
     axios
-      .post("/api/admin/notices", dto, { withCredentials: true })
+      .post(apiUrl("/api/admin/notices"), dto, { withCredentials: true })
 
       .then(fetchRows);
 
   const updateRow = (dto) =>
     axios
-      .put(`/api/admin/notices/${dto.id}`, dto, { withCredentials: true })
+      .put(apiUrl(`/api/admin/notices/${dto.id}`), dto, { withCredentials: true })
       .then(fetchRows);
 
   const deleteRows = async () => {
     await Promise.all(
       selected.map((id) =>
-        axios.delete(`/api/admin/notices/${id}`, { withCredentials: true })
+        axios.delete(apiUrl(`/api/admin/notices/${id}`), { withCredentials: true })
       )
     );
     setSelected([]);

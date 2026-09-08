@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import 'static/css/pages/Nutritional.css';
 import { useNavigate } from "react-router-dom";
+import { HEALTHME_API_BASE, healthmeApiUrl } from "config/api";
 
 // 성인 남성 기준 영양소 권장 수치량 (실제 단위: g, mg, µg)
 // 이 값들은 displayValue를 계산할 때 '기준'이 됩니다.
@@ -106,7 +107,7 @@ export default function CustomNutritionalPage() {
 
   // axios 인스턴스 생성 (loadCart 함수에서 사용할 api) - 이 부분은 CustomNutritionalPage 컴포넌트 내부에 있어야 합니다.
   const api = axios.create({
-    baseURL: 'http://localhost:8090/healthme', // 장바구니 API의 기본 URL을 여기에 맞춰주세요.
+    baseURL: HEALTHME_API_BASE, // 장바구니 API의 기본 URL을 여기에 맞춰주세요.
     withCredentials: true,
   });
 
@@ -207,7 +208,7 @@ export default function CustomNutritionalPage() {
       const enriched = await Promise.all(
         items.map(async (item) => {
           const { data } = await axios.get(
-            `http://localhost:8090/healthme/products/details/${item.productId}`
+            healthmeApiUrl(`/products/details/${item.productId}`)
           );
 
           const trueNutrientValues = {
@@ -275,7 +276,7 @@ export default function CustomNutritionalPage() {
     const fetchData = async () => {
       try {
         // 1. 제품 데이터 로드
-        const productsRes = await axios.get('http://localhost:8090/healthme/products/details', { withCredentials: true });
+        const productsRes = await axios.get(healthmeApiUrl("/products/details"), { withCredentials: true });
         console.log(productsRes.data);
 
         if (!Array.isArray(productsRes.data)) {
@@ -340,7 +341,7 @@ export default function CustomNutritionalPage() {
         setProducts(mappedProducts);
 
         // 2. 사용자 설문 점수 로드 (userNutrientScores 초기화)
-        const surveyRes = await axios.get("http://localhost:8090/healthme/survey/scores", {
+        const surveyRes = await axios.get(healthmeApiUrl("/survey/scores"), {
           params: { userid },
           withCredentials: true
         });

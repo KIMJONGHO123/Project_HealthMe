@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import 'static/css/pages/details.css';
+import { healthmeApiUrl } from "config/api";
 
 // 쿠키 설정
 function getCookie(name) {
@@ -34,7 +35,7 @@ function ProductDetailPage() {
     useEffect(() => {
         const fetchProduct = async () => {
             try {
-                const response = await fetch(`http://localhost:8090/healthme/products/details/${productId}`, {
+                const response = await fetch(healthmeApiUrl(`/products/details/${productId}`), {
                     credentials: 'include',
                 });
                 const data = await response.json();
@@ -77,7 +78,7 @@ function ProductDetailPage() {
         if (isLoggedIn) {
             try {
                 await axios.post(
-                    "http://localhost:8090/healthme/cart",
+                    healthmeApiUrl("/cart"),
                     cartItem,
                     {
                         withCredentials: true, // accessToken 쿠키 자동 전송

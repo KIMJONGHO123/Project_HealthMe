@@ -15,6 +15,7 @@ import {
 import axios from "axios";
 import ProductRegisterDialog from "./ProductRegisterDialog";
 import ProductUpdate from "./ProductUpdate";
+import { apiUrl } from "config/api";
 
 export default function ProductPage() {
   // DB조회와 상품 등록후 재조회
@@ -91,7 +92,7 @@ export default function ProductPage() {
   const handledelete = async () => {
     const delteBoolean = window.confirm("정말로 삭제하시겠습니까?");
     if (delteBoolean) {
-      await axios.post("/product/delete", checkItems, {
+      await axios.post(apiUrl("/product/delete"), checkItems, {
         withCredentials: true,
       });
       window.alert("삭제 완료되었습니다.");
@@ -121,7 +122,7 @@ export default function ProductPage() {
   useEffect(() => {
     const pagemove = async () => {
       const PageContent = await axios.get(
-        `/product/pagination?page=${page - 1}&size=10`,
+        apiUrl(`/product/pagination?page=${page - 1}&size=10`),
         { withCredentials: true }
       );
       // size는 한페이지에 몇개를 보여줄지 , page-1은 백엔드에서는 0부터 세니까 개발자 편하라고 하는거다.

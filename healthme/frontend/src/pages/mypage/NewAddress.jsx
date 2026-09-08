@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import DaumPostcodeModal from "./DaumPostcodeModal";
 import axios from "axios";
+import { apiUrl } from "config/api";
 export default function NewAddress({ addrAdd, onClose, newaddr, addrupdate }) {
   const [user, setUser] = useState({
     address: "",
@@ -27,7 +28,7 @@ export default function NewAddress({ addrAdd, onClose, newaddr, addrupdate }) {
   const updateUserSubmit = async () => {
     try {
       // console.log("user", user);
-      await axios.post(`/mypage/newAddr`, user, {
+      await axios.post(apiUrl("/mypage/newAddr"), user, {
         withCredentials: true,
       });
       window.alert("저장되었습니다.");

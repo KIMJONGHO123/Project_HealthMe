@@ -10,6 +10,7 @@ import {
   Box,
 } from "@mui/material";
 import axios from "axios";
+import { apiUrl } from "config/api";
 
 export default function ProductRegisterDialog({ open, onClose, onSubmit }) {
   const [registCategory, setregistCategory] = useState("");
@@ -72,7 +73,7 @@ export default function ProductRegisterDialog({ open, onClose, onSubmit }) {
     }
 
     try {
-      await axios.post("/product/insert/data", foamData, {
+      await axios.post(apiUrl("/product/insert/data"), foamData, {
         withCredentials: true,
       });
       onSubmit();

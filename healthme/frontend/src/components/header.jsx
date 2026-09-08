@@ -4,11 +4,12 @@ import { useNavigate } from "react-router-dom";
 import "static/css/common/common.css";
 import axios from "axios";
 import { useCart } from "static/js/CartContext.js";
+import { healthmeApiUrl } from "config/api";
 
 const handleLogout = async () => {
   try {
     await axios.post(
-      "/healthme/users/logout",
+      healthmeApiUrl("/users/logout"),
       {},
       {
         withCredentials: true,

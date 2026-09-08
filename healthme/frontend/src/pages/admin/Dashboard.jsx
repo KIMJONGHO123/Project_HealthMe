@@ -19,6 +19,7 @@ import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import axios from "axios";
+import { apiUrl, healthmeApiUrl } from "config/api";
 
 const COLORS = [
   "#8884d8",
@@ -40,8 +41,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const res1 = await axios.get("/mypage/getbuy", { withCredentials: true });
-      const res2 = await axios.get("/healthme/products");
+      const res1 = await axios.get(apiUrl("/mypage/getbuy"), { withCredentials: true });
+      const res2 = await axios.get(healthmeApiUrl("/products"));
       setOrders(res1.data);
       setProducts(res2.data);
       processData(res1.data, res2.data);

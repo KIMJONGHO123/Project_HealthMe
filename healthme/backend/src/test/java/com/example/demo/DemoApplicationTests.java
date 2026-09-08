@@ -1,9 +1,9 @@
-package com.example.demo;
+package com.example.healthme;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
+@SpringBootTest(properties = "jwt.secret=test-jwt-secret-for-context-load")
 class DemoApplicationTests {
 
 	@Test

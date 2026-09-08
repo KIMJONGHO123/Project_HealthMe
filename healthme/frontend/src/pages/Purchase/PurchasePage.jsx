@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import 'static/css/pages/Purchase.css';
+import { healthmeApiUrl } from "config/api";
 
 //  제품 리스트 컴포넌트 분리
 const ProductList = ({ products = [], isSpecial = false }) => {
@@ -64,7 +65,7 @@ const PurchasePage = () => {
   const [originalProducts, setOriginalProducts] = useState([]);
 
   useEffect(() => {
-    axios.get("http://localhost:8090/healthme/products", {
+    axios.get(healthmeApiUrl("/products"), {
       withCredentials: true,
     })
       .then(response => {

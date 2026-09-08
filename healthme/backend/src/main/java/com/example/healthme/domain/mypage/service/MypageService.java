@@ -2,6 +2,7 @@ package com.example.healthme.domain.mypage.service;
 
 import com.example.healthme.domain.approval.entity.ApprovalOrder;
 import com.example.healthme.domain.approval.repository.ApprovalOrderRepository;
+import com.example.healthme.domain.approval.service.ApprovalService;
 import com.example.healthme.domain.mypage.dto.AddressUpdate;
 import com.example.healthme.domain.mypage.dto.MyPageUserUpdate;
 import com.example.healthme.domain.mypage.entity.Address;
@@ -115,7 +116,7 @@ public class MypageService {
     public List<ApprovalOrder> getbuyproduct(PrincipalDetails principalDetails) {
         String userid= principalDetails.getUsername();
 
-        List<ApprovalOrder> order_li = approvalOrderRepository.findByUserid(userid);
+        List<ApprovalOrder> order_li = approvalOrderRepository.findByUseridAndStatus(userid, ApprovalService.STATUS_PAID);
         System.out.println("order_li : "+order_li);
         if(order_li !=null){
             System.out.println("order_li"+order_li);

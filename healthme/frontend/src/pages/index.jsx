@@ -6,6 +6,7 @@ import "@fortawesome/fontawesome-free/css/all.min.css";
 import "static/css/home/style.css";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
+import { apiUrl, healthmeApiUrl } from "config/api";
 
 // 임시 아이디 발급 로직
 const GUEST_ID_KEY = "guestId";
@@ -58,7 +59,7 @@ const HomePage = () => {
     //   .then((res) => res.json())
     //   .then((data) => setNotices(data.slice(0, 3)))
     //   .catch((err) => console.error("공지사항 로딩 오류:", err));
-    fetch("/api/notices")
+    fetch(apiUrl("/api/notices"))
       .then((res) => res.json())
       .then((data) => {
         console.log("응답 데이터:", data);
@@ -68,7 +69,7 @@ const HomePage = () => {
 
     // 3. 상품 데이터 불러오기
     axios
-      .get("http://localhost:8090/healthme/products", { withCredentials: true })
+      .get(healthmeApiUrl("/products"), { withCredentials: true })
       .then((response) => {
         const all = response.data;
 

@@ -8,6 +8,7 @@ import {
   Navigate,
 } from "react-router-dom";
 import axios from "axios";
+import { HEALTHME_API_BASE, healthmeApiUrl } from "config/api";
 
 import { CartProvider, useCart } from "static/js/CartContext";
 import Header from "components/header";
@@ -70,17 +71,17 @@ function AppRoutes() {
         const guestCart = JSON.parse(
           localStorage.getItem(guestCartKey) || "[]"
         );
-        const enriched = await enrichCartItems(guestCart);
+        const enriched = await enrichCartItems(toCartItemList(guestCart));
         setCartItems(enriched);
       } else {
         const api = axios.create({
-          baseURL: "http://localhost:8090/healthme",
+          baseURL: HEALTHME_API_BASE,
           withCredentials: true,
         });
 
         try {
           const res = await api.get(`/cart`);
-          const enriched = await enrichCartItems(res.data || []);
+          const enriched = await enrichCartItems(toCartItemList(res.data));
           setCartItems(enriched);
         } catch (error) {
           console.error("전역 장바구니 로딩 실패:", error);
@@ -88,12 +89,23 @@ function AppRoutes() {
       }
     };
 
+    const toCartItemList = (data) => {
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.content)) return data.content;
+      if (Array.isArray(data?.data)) return data.data;
+      if (Array.isArray(data?.items)) return data.items;
+
+      // TODO: 개발 확인용 로그입니다. 장바구니 API 응답 형식이 확정되면 운영 배포 전 삭제하세요.
+      console.warn("[Cart API unexpected response]", data);
+      return [];
+    };
+
     const enrichCartItems = async (items) => {
       return await Promise.all(
         items.map(async (item) => {
           try {
             const { data } = await axios.get(
-              `http://localhost:8090/healthme/products/details/${item.productId}`,
+              healthmeApiUrl(`/products/details/${item.productId}`),
               { withCredentials: true }
             );
             return {

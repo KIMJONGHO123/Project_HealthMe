@@ -7,6 +7,7 @@ import {
   Button,
 } from "@mui/material";
 import axios from "axios";
+import { apiUrl } from "config/api";
 
 export default function ProductUpdate({
   open,
@@ -100,7 +101,7 @@ export default function ProductUpdate({
     });
 
     try {
-      await axios.put(`/product/${form.product_id}`, fd, {
+      await axios.put(apiUrl(`/product/${form.product_id}`), fd, {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
       });

@@ -19,12 +19,15 @@ public class TranscationController {
     // 수정
     @PostMapping("/status")
     public ResponseEntity<String> updateStatus(@RequestBody TranscationStatusDto dto) {
+        try {
+            boolean ok = transcationService.updateTranscation(dto);
 
-        boolean ok = transcationService.updateTranscation(dto);
-
-        return ok
-                ? ResponseEntity.ok("수정되었습니다.")
-                : ResponseEntity.status(HttpStatus.NOT_FOUND).body("수정에 실패하였습니다.");
+            return ok
+                    ? ResponseEntity.ok("수정되었습니다.")
+                    : ResponseEntity.status(HttpStatus.NOT_FOUND).body("수정에 실패하였습니다.");
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+        }
     }
 
     // 이름 검색
@@ -39,12 +42,15 @@ public class TranscationController {
     @PostMapping("/refundReturn")
     public ResponseEntity<String> refundOrReturn(@RequestBody TranscationStatusDto dto,
                                                  @RequestParam("type") String type) {
+        try {
+            boolean ok = transcationService.refundOrReturn(dto, type);
 
-        boolean ok = transcationService.refundOrReturn(dto, type);
-
-        return ok
-                ? ResponseEntity.ok(type + " 되었습니다.")
-                : ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(type + "에 실패하였습니다.");
+            return ok
+                    ? ResponseEntity.ok(type + " 되었습니다.")
+                    : ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(type + "에 실패하였습니다.");
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+        }
     }
 }

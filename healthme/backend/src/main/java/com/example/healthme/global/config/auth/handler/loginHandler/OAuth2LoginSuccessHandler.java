@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
@@ -25,6 +26,9 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     private final JwtTokenProvider jwtTokenProvider;
     private final ObjectMapper objectMapper;
 
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
+
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
                                         Authentication authentication) throws IOException {
@@ -35,11 +39,13 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
         Cookie accessTokenCookie = new Cookie("accessToken", tokenInfo.getAccessToken());
         accessTokenCookie.setPath("/");
         accessTokenCookie.setHttpOnly(true);
+        accessTokenCookie.setSecure(true);
         accessTokenCookie.setMaxAge(60 * 60); // 1시간
 
         Cookie refreshTokenCookie = new Cookie("refreshToken", tokenInfo.getRefreshToken());
         refreshTokenCookie.setPath("/");
         refreshTokenCookie.setHttpOnly(true);
+        refreshTokenCookie.setSecure(true);
         refreshTokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7일
 
         response.addCookie(accessTokenCookie);
@@ -54,6 +60,6 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
         );
 
         // 4. 프론트에서 loginUser만 localStorage에 저장하게 유도
-        response.sendRedirect("http://localhost:3000/oauth2/redirect?loginUser=" + loginUser);
+        response.sendRedirect(frontendUrl + "/oauth2/redirect?loginUser=" + loginUser);
     }
 }

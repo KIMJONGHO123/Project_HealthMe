@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import axios from 'axios';
 import 'static/css/login/findAccount.css';
+import { healthmeApiUrl } from "config/api";
 
 const FindAccount = () => {
     const [activeTab, setActiveTab] = useState('username');
@@ -10,7 +11,7 @@ const FindAccount = () => {
     const [loading, setLoading] = useState(false);
 
     const handleFindUsername = () => {
-        axios.post("/healthme/users/find-username", { username })
+        axios.post(healthmeApiUrl("/users/find-username"), { username })
             .then(res => {
                 console.log("백엔드 응답:", res.data);
                 alert(`아이디(이메일): ${res.data}`)
@@ -22,7 +23,7 @@ const FindAccount = () => {
     const handleResetPassword = () => {
         setLoading(true);  // 로딩 시작
 
-        axios.post("/healthme/users/reset-password", { username, userid })
+        axios.post(healthmeApiUrl("/users/reset-password"), { username, userid })
             .then(() => alert("임시 비밀번호가 이메일로 전송되었습니다."))
             .catch(() => alert("정보가 일치하지 않습니다."))
             .finally(() => setLoading(false)); // 로딩 종료

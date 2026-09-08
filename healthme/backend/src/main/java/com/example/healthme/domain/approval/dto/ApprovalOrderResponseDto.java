@@ -19,6 +19,10 @@ public class ApprovalOrderResponseDto {
     private String status;
     private String paymentMethod;
     private int totalPrice;
+    private String merchantUid;
+    private String paymentImpUid;
+    private Integer paidAmount;
+    private LocalDateTime paidAt;
     private boolean isCanceled;
     private boolean isCompleted;
     private boolean refundRequested;
@@ -36,6 +40,10 @@ public class ApprovalOrderResponseDto {
         dto.setStatus(order.getStatus());
         dto.setPaymentMethod(order.getPaymentMethod());
         dto.setTotalPrice(order.getTotalPrice());
+        dto.setMerchantUid(order.getMerchantUid());
+        dto.setPaymentImpUid(order.getPaymentImpUid());
+        dto.setPaidAmount(order.getPaidAmount());
+        dto.setPaidAt(order.getPaidAt());
         dto.setCanceled(order.isCanceled());
         dto.setCompleted(order.isCompleted());
         dto.setRefundRequested(order.isRefundRequested());

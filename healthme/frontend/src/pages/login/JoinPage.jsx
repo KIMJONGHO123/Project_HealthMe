@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import 'static/css/login/join.css';
+import { healthmeApiUrl } from "config/api";
 
 const JoinPage = () => {
     const [formData, setFormData] = useState({
@@ -29,7 +30,7 @@ const JoinPage = () => {
 
     // 아이디 중복확인
     const handleUseridCheck = () => {
-        axios.get('/healthme/users/check', { params: { userid: formData.userid } })
+        axios.get(healthmeApiUrl("/users/check"), { params: { userid: formData.userid } })
             .then(res => alert(res.data.exists ? '이미 사용 중인 아이디입니다' : '사용 가능한 아이디입니다'))
             .catch(() => alert('중복 확인 실패'));
     };
@@ -57,7 +58,7 @@ const JoinPage = () => {
         const fullPhone = `${formData.tel1}-${formData.tel2}-${formData.tel3}`;
         const joinData = { ...formData, phone: fullPhone };
 
-        axios.post('/healthme/users/join', joinData)
+        axios.post(healthmeApiUrl("/users/join"), joinData)
             .then((res) => {
                 alert(res.data.message);
                 navigate('/login');

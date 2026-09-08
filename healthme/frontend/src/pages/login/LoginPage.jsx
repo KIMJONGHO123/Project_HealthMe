@@ -2,6 +2,9 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link } from 'react-router-dom';
 import 'static/css/login/login.css'
+import { apiUrl, healthmeApiUrl } from "config/api";
+
+const SHOW_SOCIAL_LOGIN = false;
 
 const LoginPage = () => {
     // 로그인 입력값 상태 관리
@@ -20,7 +23,7 @@ const LoginPage = () => {
         formData.append("password", loginInfo.password);
 
         try {
-            const response = await axios.post('/healthme/users/login', formData, {
+            const response = await axios.post(healthmeApiUrl("/users/login"), formData, {
                 withCredentials: true
             });
 
@@ -60,7 +63,7 @@ const LoginPage = () => {
         if (guestCart.length === 0) return;
 
         try {
-            await axios.post("http://localhost:8090/healthme/cart/guest-sync", guestCart, {
+            await axios.post(healthmeApiUrl("/cart/guest-sync"), guestCart, {
                 withCredentials: true,
             });
             localStorage.removeItem("guestCart");
@@ -127,6 +130,8 @@ const LoginPage = () => {
                             </div>
                         </div>
 
+                        {SHOW_SOCIAL_LOGIN && (
+                            <>
                         <div className="line">
                             <hr /><span>또는</span><hr />
                         </div>
@@ -137,7 +142,7 @@ const LoginPage = () => {
                                 <button
                                     type="button"
                                     className="btn2 btn-custom"
-                                    onClick={() => window.location.href = "http://localhost:8090/oauth2/authorization/google"}
+                                    onClick={() => window.location.href = apiUrl("/oauth2/authorization/google")}
                                 >
                                     <img src="/img/google.png" alt="구글" className="logo_google" />
                                     구글로 로그인
@@ -151,13 +156,15 @@ const LoginPage = () => {
                                 <button
                                     type="button"
                                     className="btn3 btn-custom"
-                                    onClick={() => window.location.href = "http://localhost:8090/oauth2/authorization/kakao"}
+                                    onClick={() => window.location.href = apiUrl("/oauth2/authorization/kakao")}
                                 >
                                     <img src="/img/kakao.png" alt="카카오" className="logo_kakao" />
                                     카카오로 로그인
                                 </button>
                             </div>
                         </div>
+                            </>
+                        )}
                     </div>
 
                     {/* 링크들 */}

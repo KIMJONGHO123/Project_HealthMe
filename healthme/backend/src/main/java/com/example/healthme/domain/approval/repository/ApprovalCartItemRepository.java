@@ -10,4 +10,6 @@ public interface ApprovalCartItemRepository extends JpaRepository<ShoppingCartIt
     List<ShoppingCartItem> findByUserUserid(String userid);
 
     void deleteByUser(User user);
+
+    List<ShoppingCartItem> findByUserAndProduct_ProductIdIn(User user, List<Long> productIds);
 }

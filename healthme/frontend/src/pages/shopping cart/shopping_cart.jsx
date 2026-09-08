@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import "static/css/pages/shopping-cart.css";
 import { useCart } from "static/js/CartContext.js";
+import { API_BASE, healthmeApiUrl } from "config/api";
 
 function ShoppingCart() {
   const [isGuest, setIsGuest] = useState(false);
@@ -12,7 +13,7 @@ function ShoppingCart() {
   const [userInfo, setUserInfo] = useState(null);
 
   const api = axios.create({
-    baseURL: "http://localhost:8090",
+    baseURL: API_BASE,
     withCredentials: true,
   });
 
@@ -42,7 +43,7 @@ function ShoppingCart() {
         items.map(async (item) => {
           try {
             const { data } = await axios.get(
-              `http://localhost:8090/healthme/products/details/${item.productId}`
+              healthmeApiUrl(`/products/details/${item.productId}`)
             );
             return {
               ...item,
@@ -74,7 +75,7 @@ function ShoppingCart() {
       items.map(async (item) => {
         try {
           const { data } = await axios.get(
-            `http://localhost:8090/healthme/products/details/${item.productId}`
+            healthmeApiUrl(`/products/details/${item.productId}`)
           );
           return {
             ...item,

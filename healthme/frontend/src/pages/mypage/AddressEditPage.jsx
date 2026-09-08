@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import AddressEditModal from "./AddressEditModal";
 import NewAddress from "./NewAddress";
 import axios from "axios";
+import { apiUrl } from "config/api";
 
 export default function AddressEditPage() {
   const [open, setOpen] = useState(false);
@@ -25,7 +26,7 @@ export default function AddressEditPage() {
 
   const fetchUserInfo = async () => {
     if (loginUser) {
-      const res = await axios.get("/mypage/getuserinfo", {
+      const res = await axios.get(apiUrl("/mypage/getuserinfo"), {
         // params: { id: loginUser.id },
         withCredentials: true,
       });
@@ -43,7 +44,7 @@ export default function AddressEditPage() {
   };
 
   const getAddress = async () => {
-    const addr_user = await axios.get(`/mypage/getaddrinfo`, {
+    const addr_user = await axios.get(apiUrl("/mypage/getaddrinfo"), {
       withCredentials: true,
     });
     setAddr_userDB(addr_user.data);
@@ -51,7 +52,7 @@ export default function AddressEditPage() {
 
   const fetchDeliveryOrders = async () => {
     try {
-      const res = await axios.get("/mypage/getbuy", {
+      const res = await axios.get(apiUrl("/mypage/getbuy"), {
         withCredentials: true,
       });
       setDeliveryOrders(res.data);
@@ -73,7 +74,7 @@ export default function AddressEditPage() {
 
   const addnewAddr = async () => {
     try {
-      const newaddr_use_user = await axios.get("/mypage/getuserinfo", {
+      const newaddr_use_user = await axios.get(apiUrl("/mypage/getuserinfo"), {
         withCredentials: true,
       });
       setNewaddr({

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { apiUrl } from "config/api";
 
 export default function UserEdit() {
   const [form, setForm] = useState({
@@ -26,7 +27,7 @@ export default function UserEdit() {
   };
   const userinfo = async () => {
     if (loginUser !== null) {
-      const getuser = await axios.get("/mypage/getuserinfo", {
+      const getuser = await axios.get(apiUrl("/mypage/getuserinfo"), {
         // params: { id: loginUser.id },
         withCredentials: true,
       });
@@ -49,7 +50,7 @@ export default function UserEdit() {
 
   const fetchDeliveryOrders = async () => {
     try {
-      const res = await axios.get("/mypage/getbuy", {
+      const res = await axios.get(apiUrl("/mypage/getbuy"), {
         withCredentials: true,
       });
       console.log("결제상품들 : ", res.data);
@@ -84,7 +85,7 @@ export default function UserEdit() {
     } else {
       try {
         // 사용자 정보 수정
-        await axios.post(`/mypage/user/update?id=${form.id}`, formData, {
+        await axios.post(apiUrl(`/mypage/user/update?id=${form.id}`), formData, {
           withCredentials: true,
           headers: {
             "Content-Type": "multipart/form-data",
@@ -93,7 +94,7 @@ export default function UserEdit() {
 
         // address 테이블 recipient 동기화
         await axios.post(
-          "/mypage/update-recipient",
+          apiUrl("/mypage/update-recipient"),
           {
             recipient: form.username,
           },

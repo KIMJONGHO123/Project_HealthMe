@@ -10,6 +10,7 @@ import com.example.healthme.global.config.auth.jwt.JwtTokenProvider;
 import com.example.healthme.global.config.auth.principal.PrincipalDetailsOAuth2Service;
 import com.example.healthme.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -21,6 +22,8 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
 
     private final CustomLoginFailureHandler customLoginFailureHandler;
     private final CustomLoginSuccessHandler customLoginSuccessHandler;
@@ -54,11 +57,21 @@ public class SecurityConfig {
                                 "/healthme/result/**",
                                 "/healthme/survey/**",
                                 "/healthme/nutrients/**",
-                                "/healthme/mypage/**",
-                                "/api/admin"
+                                "/healthme/mypage/**"
                         ).hasRole("USER")
-                        .requestMatchers("/admin","/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/admin","/admin/**",
+                                "/api/admin", "/api/admin/**",
+                                "/product/**",
+                                "/trans/**",
+                                "/transactions/**"
+                                ).hasRole("ADMIN")
                         .anyRequest().authenticated()
+                )
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint((request, response, authException) ->
+                                response.sendRedirect(frontendUrl + "/"))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                response.sendRedirect(frontendUrl + "/"))
                 )
                 .formLogin(login -> login
                         .loginProcessingUrl("/healthme/users/login") // login URL 명시

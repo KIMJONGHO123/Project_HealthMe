@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { healthmeApiUrl } from "config/api";
 
 const TraitsSection = ({ type }) => {
   const [tips, setTips] = useState([]);
@@ -8,7 +9,7 @@ const TraitsSection = ({ type }) => {
 
   // 백엔드에서 데이터 로딩
   useEffect(() => {
-    axios.get(`http://localhost:8090/healthme/result/random/${type}`, {
+    axios.get(healthmeApiUrl(`/result/random/${type}`), {
       withCredentials: true
     })
       .then(res => setTips(res.data))

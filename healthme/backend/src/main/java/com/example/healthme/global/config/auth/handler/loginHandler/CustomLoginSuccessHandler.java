@@ -40,7 +40,7 @@ public class CustomLoginSuccessHandler implements AuthenticationSuccessHandler {
 		// 쿠키에 refreshToken 저장
 		Cookie refreshTokenCookie = new Cookie(JwtProperties.REFRESH_TOKEN_COOKIE_NAME, tokenInfo.getRefreshToken());
 		refreshTokenCookie.setHttpOnly(true);
-		refreshTokenCookie.setSecure(false); // 배포 시 true
+		refreshTokenCookie.setSecure(true);
 		refreshTokenCookie.setPath("/");
 		refreshTokenCookie.setMaxAge(JwtProperties.REFRESH_TOKEN_EXPIRATION_TIME / 1000);
 		response.addCookie(refreshTokenCookie);
@@ -50,7 +50,7 @@ public class CustomLoginSuccessHandler implements AuthenticationSuccessHandler {
 		// 쿠키에 accessToken 저장 (선택적, accessToken은 JS에서 직접 써도 됨)
 		Cookie accessTokenCookie = new Cookie(JwtProperties.ACCESS_TOKEN_COOKIE_NAME, tokenInfo.getAccessToken());
 		accessTokenCookie.setHttpOnly(true);
-		accessTokenCookie.setSecure(false);
+		accessTokenCookie.setSecure(true);
 		accessTokenCookie.setPath("/");
 		accessTokenCookie.setMaxAge(JwtProperties.ACCESS_TOKEN_EXPIRATION_TIME / 1000);
 		response.addCookie(accessTokenCookie);

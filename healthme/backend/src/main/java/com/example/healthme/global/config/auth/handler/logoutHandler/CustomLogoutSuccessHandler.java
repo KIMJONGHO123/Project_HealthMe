@@ -33,13 +33,13 @@ public class CustomLogoutSuccessHandler implements LogoutSuccessHandler {
         accessTokenCookie.setPath("/");
         accessTokenCookie.setHttpOnly(true);
         accessTokenCookie.setMaxAge(0);
-        accessTokenCookie.setSecure(false); // 개발환경
+        accessTokenCookie.setSecure(true);
 
         Cookie refreshTokenCookie = new Cookie("refreshToken", null);
         refreshTokenCookie.setPath("/");
         refreshTokenCookie.setHttpOnly(true);
         refreshTokenCookie.setMaxAge(0);
-        refreshTokenCookie.setSecure(false);
+        refreshTokenCookie.setSecure(true);
 
         response.addCookie(accessTokenCookie);
         response.addCookie(refreshTokenCookie);

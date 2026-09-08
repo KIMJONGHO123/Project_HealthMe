@@ -82,6 +82,7 @@ public class JwtAuthorizationFilter extends OncePerRequestFilter {
                 String newAccessToken = jwtTokenProvider.createAccessToken(user);
                 Cookie newAccessCookie = new Cookie(JwtProperties.ACCESS_TOKEN_COOKIE_NAME, newAccessToken);
                 newAccessCookie.setHttpOnly(true);
+                newAccessCookie.setSecure(true);
                 newAccessCookie.setMaxAge(JwtProperties.ACCESS_TOKEN_EXPIRATION_TIME / 1000);
                 newAccessCookie.setPath("/");
                 response.addCookie(newAccessCookie);
@@ -105,6 +106,7 @@ public class JwtAuthorizationFilter extends OncePerRequestFilter {
 
                 // accessToken 쿠키 제거
                 Cookie expiredAccessToken = new Cookie(JwtProperties.ACCESS_TOKEN_COOKIE_NAME, null);
+                expiredAccessToken.setSecure(true);
                 expiredAccessToken.setMaxAge(0);
                 expiredAccessToken.setPath("/");
                 response.addCookie(expiredAccessToken);
@@ -131,6 +133,7 @@ public class JwtAuthorizationFilter extends OncePerRequestFilter {
                             String newAccessToken = jwtTokenProvider.createAccessToken(user);
                             Cookie newAccessCookie = new Cookie(JwtProperties.ACCESS_TOKEN_COOKIE_NAME, newAccessToken);
                             newAccessCookie.setHttpOnly(true);
+                            newAccessCookie.setSecure(true);
                             newAccessCookie.setMaxAge(JwtProperties.ACCESS_TOKEN_EXPIRATION_TIME / 1000);
                             newAccessCookie.setPath("/");
                             response.addCookie(newAccessCookie);
@@ -144,6 +147,7 @@ public class JwtAuthorizationFilter extends OncePerRequestFilter {
 
                         // RefreshToken 쿠키 제거
                         Cookie expiredRefreshToken = new Cookie(JwtProperties.REFRESH_TOKEN_COOKIE_NAME, null);
+                        expiredRefreshToken.setSecure(true);
                         expiredRefreshToken.setMaxAge(0);
                         expiredRefreshToken.setPath("/");
                         response.addCookie(expiredRefreshToken);

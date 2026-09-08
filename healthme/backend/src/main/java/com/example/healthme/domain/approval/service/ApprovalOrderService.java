@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -61,6 +62,7 @@ public class ApprovalOrderService {
         // 3. 주문 객체 생성
         ApprovalOrder approvalOrder = ApprovalOrder.builder()
                 .userid(dto.getUserid())
+                .merchantUid("healthme-legacy-" + UUID.randomUUID().toString().replace("-", ""))
                 .orderDate(LocalDateTime.now())
                 .status("결제완료")
                 .isCanceled(false)

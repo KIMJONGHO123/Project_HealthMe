@@ -1,8 +1,11 @@
 package com.example.healthme.domain.approval.service;
 
-import com.example.healthme.domain.approval.dto.ApprovalOrderItemDto;
-import com.example.healthme.domain.approval.dto.ApprovalOrderRequestDto;
-import com.example.healthme.domain.approval.dto.ApprovalOrderResponseDto;
+import com.example.healthme.domain.approval.dto.PaymentCompleteRequestDto;
+import com.example.healthme.domain.approval.dto.PaymentCompleteResponseDto;
+import com.example.healthme.domain.approval.dto.PaymentPrepareItemDto;
+import com.example.healthme.domain.approval.dto.PaymentPrepareRequestDto;
+import com.example.healthme.domain.approval.dto.PaymentPrepareResponseDto;
+import com.example.healthme.domain.approval.dto.PortOnePaymentDto;
 import com.example.healthme.domain.approval.entity.ApprovalOrder;
 import com.example.healthme.domain.approval.entity.ApprovalOrderItem;
 import com.example.healthme.domain.approval.repository.ApprovalCartItemRepository;
@@ -13,151 +16,437 @@ import com.example.healthme.domain.mypage.entity.Address;
 import com.example.healthme.domain.mypage.repository.AddressRepository;
 import com.example.healthme.domain.product.entity.ProductStore;
 import com.example.healthme.domain.product.repository.ProductStoreRepository;
-import com.example.healthme.domain.product.service.ProductStoreService;
+import com.example.healthme.domain.shoppingcart.entity.ShoppingCartItem;
 import com.example.healthme.domain.user.entity.User;
 import com.example.healthme.domain.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ApprovalService {
+
+    public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_PAID = "PAID";
+    public static final String STATUS_FAILED = "FAILED";
+    public static final String STATUS_CANCELLED = "CANCELLED";
+    public static final String STATUS_REVIEW_REQUIRED = "PAYMENT_REVIEW_REQUIRED";
+
+    private static final DateTimeFormatter MERCHANT_UID_DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
 
     private final ApprovalOrderRepository approvalOrderRepository;
     private final ApprovalOrderItemRepository approvalOrderItemRepository;
     private final AddressRepository addressRepository;
     private final UserRepository userRepository;
-    @Autowired
-    private ApprovalCartItemRepository approvalCartItemRepository;
-    @Autowired
-    private ProductStoreRepository productStoreRepository;
+    private final ApprovalCartItemRepository approvalCartItemRepository;
+    private final ProductStoreRepository productStoreRepository;
+    private final PortOneClient portOneClient;
+
     @Transactional
-    public ApprovalOrderResponseDto processPaymentAndSaveOrder(ApprovalOrderRequestDto requestDto, String userId) {
+    public PaymentPrepareResponseDto preparePayment(PaymentPrepareRequestDto requestDto, String userId) {
+        User currentUser = findCurrentUser(userId);
+        validatePrepareItems(requestDto.getItems());
 
-        // user ID(String)를 기반으로 User 엔티티를 조회합니다.
-        // User 엔티티의 getId() 메서드를 통해 Long 타입의 user_id를 얻을 수 있습니다.
-        User currentUser = userRepository.findByUserid(userId)
+        Address orderAddress = resolveOrderAddress(requestDto, currentUser);
+        List<PreparedOrderItem> preparedItems = prepareOrderItems(requestDto.getItems());
+        int expectedAmount = calculateExpectedAmount(preparedItems, currentUser.getGrade());
+        String merchantUid = generateMerchantUid();
+
+        ApprovalOrder approvalOrder = ApprovalOrder.builder()
+                .userid(currentUser.getUserid())
+                .merchantUid(merchantUid)
+                .orderDate(LocalDateTime.now())
+                .status(STATUS_PENDING)
+                .paymentMethod(normalizePaymentMethod(requestDto.getPaymentMethod()))
+                .totalPrice(expectedAmount)
+                .isCanceled(false)
+                .isCompleted(false)
+                .refundRequested(false)
+                .returnRequested(false)
+                .address(orderAddress)
+                .build();
+
+        ApprovalOrder savedOrder = approvalOrderRepository.save(approvalOrder);
+        List<ApprovalOrderItem> orderItems = saveOrderItems(savedOrder, preparedItems);
+        savedOrder.setApprovalOrderItems(orderItems);
+
+        // Register the server-calculated amount before opening the PortOne payment window.
+        portOneClient.preparePayment(merchantUid, expectedAmount);
+
+        return new PaymentPrepareResponseDto(
+                savedOrder.getOrderId(),
+                merchantUid,
+                expectedAmount,
+                createOrderName(orderItems)
+        );
+    }
+
+    @Transactional(noRollbackFor = PaymentValidationException.class)
+    public PaymentCompleteResponseDto completePayment(PaymentCompleteRequestDto requestDto, String userId) {
+        User currentUser = findCurrentUser(userId);
+        // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+        log.info("[Payment complete request] userId={}, merchantUid={}, impUid={}",
+                userId, requestDto.getMerchantUid(), requestDto.getImpUid());
+
+        PortOnePaymentDto portOnePayment = portOneClient.getPayment(requestDto.getImpUid());
+        // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+        log.info("[PortOne payment lookup] impUid={}, merchantUid={}, status={}, amount={}, currency={}",
+                portOnePayment.getImpUid(),
+                portOnePayment.getMerchantUid(),
+                portOnePayment.getStatus(),
+                portOnePayment.getAmount(),
+                portOnePayment.getCurrency());
+
+        ApprovalOrder order = approvalOrderRepository.findByMerchantUidForUpdate(requestDto.getMerchantUid())
+                .orElseThrow(() -> {
+                    cancelPaidPaymentQuietly(portOnePayment, "No matching HealthMe order");
+                    return new EntityNotFoundException("주문을 찾을 수 없습니다: " + requestDto.getMerchantUid());
+                });
+
+        if (!currentUser.getUserid().equals(order.getUserid())) {
+            // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+            log.warn("[Payment validation failed] owner mismatch. loginUser={}, orderUser={}, merchantUid={}",
+                    currentUser.getUserid(), order.getUserid(), order.getMerchantUid());
+            throw new PaymentValidationException("현재 사용자의 주문이 아닙니다.");
+        }
+
+        // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+        log.info("[HealthMe order lookup] orderId={}, merchantUid={}, status={}, totalPrice={}, userId={}",
+                order.getOrderId(),
+                order.getMerchantUid(),
+                order.getStatus(),
+                order.getTotalPrice(),
+                order.getUserid());
+
+        if (STATUS_PAID.equals(order.getStatus())) {
+            if (isSamePaidOrder(order, portOnePayment, currentUser)) {
+                return createCompleteResponse(order, "이미 결제 완료 처리된 주문입니다.");
+            }
+            if (isSameMerchantUid(order, portOnePayment)) {
+                cancelPaidPaymentQuietly(portOnePayment, "Order already processed");
+            }
+            throw new PaymentValidationException("이미 다른 결제로 처리된 주문입니다.");
+        }
+
+        try {
+            validatePaymentForOrder(order, portOnePayment, requestDto, currentUser);
+            confirmPaidOrder(order, portOnePayment, currentUser);
+            return createCompleteResponse(order, "결제 검증이 완료되었습니다.");
+        } catch (PaymentValidationException e) {
+            // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+            log.warn("[Payment validation failed] merchantUid={}, impUid={}, reason={}",
+                    requestDto.getMerchantUid(), requestDto.getImpUid(), e.getMessage());
+            if (isSameMerchantUid(order, portOnePayment)) {
+                markInvalidPayment(order, portOnePayment, e.getMessage());
+            }
+            throw e;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public AddressUpdate getDefaultAddressByUserId(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("ID가 " + userId + "인 사용자를 찾을 수 없습니다."));
+
+        Address defaultAddress = addressRepository.findByUserAndIsDefault(user, true)
+                .orElseThrow(() -> new EntityNotFoundException("기본 배송지를 찾을 수 없습니다."));
+
+        return new AddressUpdate(defaultAddress);
+    }
+
+    private User findCurrentUser(String userId) {
+        return userRepository.findByUserid(userId)
                 .orElseThrow(() -> new EntityNotFoundException("사용자를 찾을 수 없습니다: " + userId));
+    }
 
-        // 1. 주소 처리
-        Address orderAddress;
+    private void validatePrepareItems(List<PaymentPrepareItemDto> items) {
+        if (items == null || items.isEmpty()) {
+            throw new IllegalArgumentException("주문 상품이 없습니다.");
+        }
+        for (PaymentPrepareItemDto item : items) {
+            if (item.getProductId() == null || item.getQuantity() < 1) {
+                throw new IllegalArgumentException("상품 ID와 수량을 확인해 주세요.");
+            }
+        }
+    }
+
+    private Address resolveOrderAddress(PaymentPrepareRequestDto requestDto, User currentUser) {
+        if (requestDto.getAddressId() != null) {
+            Address address = addressRepository.findById(requestDto.getAddressId())
+                    .orElseThrow(() -> new EntityNotFoundException("배송지를 찾을 수 없습니다."));
+            if (address.getUser() == null || !address.getUser().getId().equals(currentUser.getId())) {
+                throw new IllegalArgumentException("현재 사용자의 배송지가 아닙니다.");
+            }
+            return address;
+        }
+
         if (requestDto.getAddress() != null) {
-            // ApprovalOrderRequestDto 내의 AddressUpdate DTO를 사용하여 새로운 주소 생성
             AddressUpdate newAddressDto = requestDto.getAddress();
+            validateNewAddress(newAddressDto);
             Address newAddress = Address.builder()
-                    .user(currentUser) // User 엔티티와 연결
+                    .user(currentUser)
                     .recipient(newAddressDto.getRecipient())
                     .zip(newAddressDto.getZonecode())
                     .address(newAddressDto.getAddress())
                     .addressDetail(newAddressDto.getAddressDetail())
                     .recipientPhone(newAddressDto.getTel())
-                    .isDefault(false) // 새로 입력된 주소는 기본값이 아니라고 가정
+                    .isDefault(false)
                     .build();
-            orderAddress = addressRepository.save(newAddress);
-        } else {
-            // 사용자의 기본 주소를 DB에서 조회합니다.
-            // findByUserId를 사용할 수 있지만, 기본 주소를 찾아야 하므로 isDefault 필드도 사용합니다.
-            // AddressRepository에 findByUserAndIsDefault(User user, Boolean isDefault) 메서드가
-            // 이미 추가되었거나 추가되어야 합니다.
-            Optional<Address> defaultAddressOptional = addressRepository.findByUserAndIsDefault(currentUser, true);
-
-            if (defaultAddressOptional.isPresent()) {
-                orderAddress = defaultAddressOptional.get();
-            } else {
-                // 기본 주소가 없는 경우, 사용자의 모든 주소 중 첫 번째 주소를 사용하거나 예외를 발생시킬 수 있습니다.
-                // 여기서는 예외를 발생시켜 주소 선택을 강제합니다.
-                throw new IllegalArgumentException("기본 배송지를 찾을 수 없습니다. 새로운 주소를 입력하거나 기본 배송지를 설정해 주세요.");
-            }
+            return addressRepository.save(newAddress);
         }
 
-        // 2. ApprovalOrder 엔티티 생성
-        ApprovalOrder approvalOrder = ApprovalOrder.builder()
-                .userid(userId) // 사용자 ID는 String으로 유지
-                .orderDate(LocalDateTime.now())
-                .status("결제완료")
-                .paymentMethod("card")
-                .totalPrice(requestDto.getTotalPrice())
-                .isCanceled(false)
-                .isCompleted(false)
-                .refundRequested(false)
-                .returnRequested(false)
-                .address(orderAddress) // 처리된 주소 엔티티 연결
-                .build();
+        return addressRepository.findByUserAndIsDefault(currentUser, true)
+                .orElseThrow(() -> new IllegalArgumentException("기본 배송지를 찾을 수 없습니다."));
+    }
 
-        // 3. ApprovalOrder 저장 (orderId 생성)
-        approvalOrder = approvalOrderRepository.save(approvalOrder);
+    private void validateNewAddress(AddressUpdate address) {
+        if (isBlank(address.getRecipient())
+                || isBlank(address.getZonecode())
+                || isBlank(address.getAddress())
+                || isBlank(address.getTel())) {
+            throw new IllegalArgumentException("배송지 필수 정보를 입력해 주세요.");
+        }
+    }
 
-        // 4. ApprovalOrderItem 엔티티 생성 및 저장
-        ApprovalOrder finalApprovalOrder = approvalOrder;
-        List<ApprovalOrderItem> orderItems = requestDto.getItems().stream()
-                .map(itemDto -> {
-                    // **참고**: 실제 운영 환경에서는 상품 정보(가격, 이름 등)를
-                    // ProductRepository에서 직접 조회하여 사용하는 것이 안전합니다.
-                    // 클라이언트에서 전달된 값을 그대로 사용하면 보안에 취약할 수 있습니다.
-                    int price = itemDto.getPrice();
-                    int discountPrice = itemDto.getDiscountPrice();
-                    int quantity = itemDto.getQuantity();
+    private List<PreparedOrderItem> prepareOrderItems(List<PaymentPrepareItemDto> items) {
+        List<PreparedOrderItem> preparedItems = new ArrayList<>();
+        for (PaymentPrepareItemDto itemDto : items) {
+            ProductStore product = productStoreRepository.findByProductId(itemDto.getProductId())
+                    .orElseThrow(() -> new EntityNotFoundException("상품을 찾을 수 없습니다: " + itemDto.getProductId()));
 
-                    int unitPrice = discountPrice; // 할인된 가격을 단가로 사용
-                    int itemTotal = unitPrice * quantity; // 상품별 총 가격
+            if (product.getAmount() < itemDto.getQuantity()) {
+                throw new IllegalArgumentException("재고가 부족합니다: " + product.getName());
+            }
 
-                    ProductStore product = productStoreRepository.findById(itemDto.getProductId())
-                            .orElseThrow(() -> new EntityNotFoundException("상품을 찾을 수 없습니다: " + itemDto.getProductId()));
+            preparedItems.add(new PreparedOrderItem(product, itemDto.getQuantity()));
+        }
+        return preparedItems;
+    }
 
+    private int calculateExpectedAmount(List<PreparedOrderItem> preparedItems, String userGrade) {
+        int saleSubtotal = preparedItems.stream()
+                .mapToInt(item -> item.product().getSalprice() * item.quantity())
+                .sum();
+        int gradeDiscount = (int) Math.floor(saleSubtotal * getGradeDiscountRate(userGrade));
+        return saleSubtotal - gradeDiscount;
+    }
+
+    private List<ApprovalOrderItem> saveOrderItems(ApprovalOrder order, List<PreparedOrderItem> preparedItems) {
+        List<ApprovalOrderItem> orderItems = preparedItems.stream()
+                .map(item -> {
+                    ProductStore product = item.product();
+                    int unitPrice = product.getSalprice();
+                    int quantity = item.quantity();
                     return ApprovalOrderItem.builder()
-                            .order(finalApprovalOrder)
-                            .productId(itemDto.getProductId())
-                            .productName(itemDto.getProductName())
+                            .order(order)
+                            .productId(product.getProductId())
+                            .productName(product.getName())
                             .quantity(quantity)
-                            .price(price)
-                            .discountPrice(discountPrice)
+                            .price(product.getPrice())
+                            .discountPrice(product.getSalprice())
                             .unitPrice(unitPrice)
-                            .itemTotal(itemTotal)
-                            .productImageUrl(product.getImageUrl()) // 이미지 경로 저장
+                            .itemTotal(unitPrice * quantity)
+                            .productImageUrl(product.getImageUrl())
                             .build();
                 })
                 .collect(Collectors.toList());
-
-        approvalOrderItemRepository.saveAll(orderItems);
-
-        // 장바구니 비우기
-        approvalCartItemRepository.deleteByUser(currentUser);
-
-        // 응답 DTO 생성을 위해 주문 항목들을 주문 엔티티에 설정
-        approvalOrder.setApprovalOrderItems(orderItems);
-
-        // 5. ApprovalOrderResponseDto 생성 및 반환
-        return ApprovalOrderResponseDto.fromEntity(approvalOrder);
+        return approvalOrderItemRepository.saveAll(orderItems);
     }
 
-    /**
-     * 특정 사용자 ID를 통해 해당 사용자의 기본 배송지 정보를 조회합니다.
-     *
-     * @param userId 조회할 사용자의 Long 타입 ID
-     * @return 기본 배송지 정보를 담은 AddressUpdate DTO. 기본 배송지가 없으면 예외 발생.
-     * @throws EntityNotFoundException 사용자를 찾을 수 없거나 기본 배송지가 없는 경우
-     */
-    @Transactional(readOnly = true) // 읽기 전용 트랜잭션으로 설정
-    public AddressUpdate getDefaultAddressByUserId(Long userId) {
-        // 1. Long 타입의 userId를 사용하여 User 엔티티 조회
-        User user = userRepository.findById(userId) // JpaRepository의 기본 findById 사용
-                .orElseThrow(() -> new EntityNotFoundException("ID가 " + userId + "인 사용자를 찾을 수 없습니다."));
+    private void validatePaymentForOrder(
+            ApprovalOrder order,
+            PortOnePaymentDto portOnePayment,
+            PaymentCompleteRequestDto requestDto,
+            User currentUser
+    ) {
+        if (!requestDto.getImpUid().equals(portOnePayment.getImpUid())) {
+            throw new PaymentValidationException("PortOne 결제번호가 일치하지 않습니다.");
+        }
+        if (!portOnePayment.isPaid()) {
+            throw new PaymentValidationException("결제가 완료된 상태가 아닙니다.");
+        }
+        if (!requestDto.getMerchantUid().equals(portOnePayment.getMerchantUid())
+                || !order.getMerchantUid().equals(portOnePayment.getMerchantUid())) {
+            throw new PaymentValidationException("주문번호가 일치하지 않습니다.");
+        }
+        if (!currentUser.getUserid().equals(order.getUserid())) {
+            throw new PaymentValidationException("현재 사용자의 주문이 아닙니다.");
+        }
+        if (!STATUS_PENDING.equals(order.getStatus())) {
+            throw new PaymentValidationException("처리 가능한 주문 상태가 아닙니다: " + order.getStatus());
+        }
+        if (portOnePayment.getAmount() != order.getTotalPrice()) {
+            throw new PaymentValidationException("결제 금액이 주문 금액과 일치하지 않습니다.");
+        }
+        if (!isBlank(portOnePayment.getCurrency()) && !"KRW".equals(portOnePayment.getCurrency())) {
+            throw new PaymentValidationException("결제 통화가 KRW가 아닙니다.");
+        }
+        if (approvalOrderRepository.existsByPaymentImpUid(requestDto.getImpUid())) {
+            throw new PaymentValidationException("이미 처리된 PortOne 결제번호입니다.");
+        }
+    }
 
-        // 2. 해당 User의 기본 배송지 조회
-        Address defaultAddress = addressRepository.findByUserAndIsDefault(user, true)
-                .orElseThrow(() -> new EntityNotFoundException("사용자 ID: " + userId + "에 대한 기본 배송지를 찾을 수 없습니다."));
+    private void confirmPaidOrder(ApprovalOrder order, PortOnePaymentDto portOnePayment, User currentUser) {
+        List<ProductStore> lockedProducts = lockAndValidateStock(order.getApprovalOrderItems());
 
-        // 3. 조회된 Address 엔티티를 AddressUpdate DTO로 변환
-        // AddressUpdate DTO의 생성자를 활용합니다.
-        // 이 생성자가 엔티티의 필드와 DTO의 필드를 올바르게 매핑해줍니다.
-        return new AddressUpdate(defaultAddress);
+        for (ApprovalOrderItem item : order.getApprovalOrderItems()) {
+            ProductStore product = findLockedProduct(lockedProducts, item.getProductId());
+            product.setAmount(product.getAmount() - item.getQuantity());
+            product.setSales_count(product.getSales_count() + item.getQuantity());
+        }
+
+        order.setPaymentImpUid(portOnePayment.getImpUid());
+        order.setPaidAmount(portOnePayment.getAmount());
+        order.setPaidAt(Optional.ofNullable(portOnePayment.getPaidAt()).orElse(LocalDateTime.now()));
+        order.setStatus(STATUS_PAID);
+        order.setCanceled(false);
+
+        currentUser.setTotalPurchaseAmount(currentUser.getTotalPurchaseAmount() + order.getTotalPrice());
+
+        List<Long> productIds = order.getApprovalOrderItems().stream()
+                .map(ApprovalOrderItem::getProductId)
+                .toList();
+        if (!productIds.isEmpty()) {
+            List<ShoppingCartItem> purchasedCartItems =
+                    approvalCartItemRepository.findByUserAndProduct_ProductIdIn(currentUser, productIds);
+            approvalCartItemRepository.deleteAll(purchasedCartItems);
+        }
+
+        // TODO: 개발 확인용 로그입니다. 운영 배포 전 반드시 삭제하세요.
+        log.info("[Payment confirmed] orderId={}, merchantUid={}, impUid={}, amount={}",
+                order.getOrderId(), order.getMerchantUid(), order.getPaymentImpUid(), order.getPaidAmount());
+    }
+
+    private List<ProductStore> lockAndValidateStock(List<ApprovalOrderItem> orderItems) {
+        List<ProductStore> lockedProducts = new ArrayList<>();
+        for (ApprovalOrderItem item : orderItems) {
+            ProductStore product = productStoreRepository.findByProductIdForUpdate(item.getProductId())
+                    .orElseThrow(() -> new PaymentValidationException("상품을 찾을 수 없습니다: " + item.getProductId()));
+            if (product.getAmount() < item.getQuantity()) {
+                throw new PaymentValidationException("결제 후 재고가 부족해졌습니다: " + product.getName());
+            }
+            lockedProducts.add(product);
+        }
+        return lockedProducts;
+    }
+
+    private ProductStore findLockedProduct(List<ProductStore> lockedProducts, Long productId) {
+        return lockedProducts.stream()
+                .filter(product -> product.getProductId().equals(productId))
+                .findFirst()
+                .orElseThrow(() -> new PaymentValidationException("상품 잠금 정보를 찾을 수 없습니다: " + productId));
+    }
+
+    private void markInvalidPayment(ApprovalOrder order, PortOnePaymentDto portOnePayment, String reason) {
+        if (portOnePayment.isPaid()) {
+            if (order.getPaymentImpUid() == null
+                    && !approvalOrderRepository.existsByPaymentImpUid(portOnePayment.getImpUid())) {
+                order.setPaymentImpUid(portOnePayment.getImpUid());
+            }
+            order.setPaidAmount(portOnePayment.getAmount());
+            order.setPaidAt(Optional.ofNullable(portOnePayment.getPaidAt()).orElse(LocalDateTime.now()));
+
+            try {
+                portOneClient.cancelPayment(portOnePayment.getImpUid(), reason);
+                order.setStatus(STATUS_CANCELLED);
+                order.setCanceled(true);
+            } catch (RuntimeException cancelException) {
+                order.setStatus(STATUS_REVIEW_REQUIRED);
+                log.warn("PortOne auto cancel failed. merchantUid={}, impUid={}, reason={}",
+                        order.getMerchantUid(), portOnePayment.getImpUid(), cancelException.getMessage());
+            }
+        } else {
+            order.setStatus(STATUS_FAILED);
+        }
+    }
+
+    private boolean isSamePaidOrder(ApprovalOrder order, PortOnePaymentDto portOnePayment, User currentUser) {
+        return currentUser.getUserid().equals(order.getUserid())
+                && portOnePayment.isPaid()
+                && isSameMerchantUid(order, portOnePayment)
+                && order.getTotalPrice() == portOnePayment.getAmount()
+                && order.getPaymentImpUid() != null
+                && order.getPaymentImpUid().equals(portOnePayment.getImpUid());
+    }
+
+    private boolean isSameMerchantUid(ApprovalOrder order, PortOnePaymentDto portOnePayment) {
+        return order.getMerchantUid() != null && order.getMerchantUid().equals(portOnePayment.getMerchantUid());
+    }
+
+    private void cancelPaidPaymentQuietly(PortOnePaymentDto portOnePayment, String reason) {
+        if (!portOnePayment.isPaid()) {
+            return;
+        }
+        try {
+            portOneClient.cancelPayment(portOnePayment.getImpUid(), reason);
+        } catch (RuntimeException cancelException) {
+            log.warn("PortOne auto cancel failed for impUid={}: {}",
+                    portOnePayment.getImpUid(), cancelException.getMessage());
+        }
+    }
+
+    private PaymentCompleteResponseDto createCompleteResponse(ApprovalOrder order, String message) {
+        return new PaymentCompleteResponseDto(
+                true,
+                message,
+                order.getOrderId(),
+                order.getMerchantUid(),
+                order.getStatus(),
+                Optional.ofNullable(order.getPaidAmount()).orElse(order.getTotalPrice())
+        );
+    }
+
+    private String generateMerchantUid() {
+        String date = LocalDate.now().format(MERCHANT_UID_DATE_FORMAT);
+        String merchantUid;
+        do {
+            String random = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            merchantUid = "healthme-" + date + "-" + random;
+        } while (approvalOrderRepository.existsByMerchantUid(merchantUid));
+        return merchantUid;
+    }
+
+    private String createOrderName(List<ApprovalOrderItem> orderItems) {
+        if (orderItems.size() == 1) {
+            return orderItems.get(0).getProductName();
+        }
+        return orderItems.get(0).getProductName() + " 외 " + (orderItems.size() - 1) + "건";
+    }
+
+    private String normalizePaymentMethod(String paymentMethod) {
+        return isBlank(paymentMethod) ? "card" : paymentMethod;
+    }
+
+    private double getGradeDiscountRate(String grade) {
+        if (isBlank(grade)) {
+            return 0.03;
+        }
+        return switch (grade) {
+            case "새싹" -> 0.03;
+            case "열정" -> 0.06;
+            case "우수" -> 0.09;
+            case "명예" -> 0.12;
+            default -> 0.0;
+        };
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private record PreparedOrderItem(ProductStore product, int quantity) {
     }
 }

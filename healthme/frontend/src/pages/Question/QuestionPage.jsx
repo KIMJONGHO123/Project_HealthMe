@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import 'static/css/pages/Question.css';
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
+import { healthmeApiUrl } from "config/api";
 
 const NutritionSurvey = () => {
   useEffect(() => {
@@ -50,7 +51,7 @@ const NutritionSurvey = () => {
     }
 
     try {
-      const res = await fetch("/healthme/survey", {
+      const res = await fetch(healthmeApiUrl("/survey"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
