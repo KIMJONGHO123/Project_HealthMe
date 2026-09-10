@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "healthme/backend/**"
+      - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
 permissions:
@@ -92,96 +93,83 @@ jobs:
           docker push "$IMAGE_URI:latest"
           echo "image_uri=$IMAGE_URI:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare SSH key
+      - name: Deploy to EC2 with AWS SSM
         env:
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/healthme.pem
-          chmod 600 ~/.ssh/healthme.pem
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-
-      - name: Deploy to EC2
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
           IMAGE_URI: ${{ steps.build-image.outputs.image_uri }}
+          EC2_INSTANCE_ID: i-0dbd24cd6a0b6e508
         run: |
-          ssh -i ~/.ssh/healthme.pem \
-            -o ConnectTimeout=15 \
-            ubuntu@"$EC2_HOST" \
-            "IMAGE_URI='$IMAGE_URI' AWS_REGION='$AWS_REGION' bash -s" <<'EOF'
-          set -euo pipefail
+          jq -n \
+            --arg image "$IMAGE_URI" \
+            --arg region "$AWS_REGION" \
+            '{
+              commands: [
+                "set -e",
+                ("IMAGE_URI=" + $image),
+                ("AWS_REGION=" + $region),
+                "REGISTRY=${IMAGE_URI%%/*}",
 
-          REGISTRY="${IMAGE_URI%%/*}"
-          ENV_FILE="/home/ubuntu/healthme/.env"
+                "aws ecr get-login-password --region \"$AWS_REGION\" | docker login --username AWS --password-stdin \"$REGISTRY\"",
 
-          aws ecr get-login-password --region "$AWS_REGION" \
-            | docker login --username AWS --password-stdin "$REGISTRY"
+                "docker pull \"$IMAGE_URI\"",
 
-          docker pull "$IMAGE_URI"
+                "OLD_IMAGE=$(docker inspect -f \"{{.Config.Image}}\" healthme-backend 2>/dev/null || true)",
 
-          # Validate the new image on 8091 before touching production.
-          docker rm -f healthme-backend-candidate 2>/dev/null || true
-          docker run -d \
-            --name healthme-backend-candidate \
-            --network host \
-            --env-file "$ENV_FILE" \
-            -e SERVER_PORT=8091 \
-            "$IMAGE_URI"
+                "docker rm -f healthme-backend 2>/dev/null || true",
 
-          CANDIDATE_OK=false
-          for i in $(seq 1 45); do
-            if curl -fsS -o /dev/null http://127.0.0.1:8091; then
-              CANDIDATE_OK=true
-              break
+                "docker run -d --name healthme-backend --restart unless-stopped --network host --env-file /home/ubuntu/healthme/.env \"$IMAGE_URI\"",
+
+                "for i in $(seq 1 45); do if curl -fsS -o /dev/null http://127.0.0.1:8090; then exit 0; fi; sleep 2; done",
+
+                "docker logs --tail 200 healthme-backend || true",
+
+                "docker rm -f healthme-backend || true",
+
+                "if [ -n \"$OLD_IMAGE\" ]; then docker run -d --name healthme-backend --restart unless-stopped --network host --env-file /home/ubuntu/healthme/.env \"$OLD_IMAGE\"; fi",
+
+                "exit 1"
+              ]
+            }' > ssm-parameters.json
+
+          COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters file://ssm-parameters.json \
+            --timeout-seconds 600 \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          for i in $(seq 1 120); do
+            STATUS=$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query "Status" \
+              --output text 2>/dev/null || echo "Pending")
+
+            echo "Deployment status: $STATUS"
+
+            if [ "$STATUS" = "Success" ]; then
+              echo "Backend deployment succeeded"
+              exit 0
             fi
-            sleep 2
+
+            if [ "$STATUS" = "Failed" ] || \
+               [ "$STATUS" = "TimedOut" ] || \
+               [ "$STATUS" = "Cancelled" ]; then
+
+              aws ssm get-command-invocation \
+                --region "$AWS_REGION" \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$EC2_INSTANCE_ID"
+
+              exit 1
+            fi
+
+            sleep 5
           done
 
-          if [ "$CANDIDATE_OK" != "true" ]; then
-            echo "Candidate container health check failed."
-            docker logs --tail 200 healthme-backend-candidate || true
-            docker rm -f healthme-backend-candidate || true
-            exit 1
-          fi
-
-          OLD_IMAGE=$(docker inspect -f '{{.Config.Image}}' healthme-backend 2>/dev/null || true)
-          docker rm -f healthme-backend-candidate
-          docker rm -f healthme-backend 2>/dev/null || true
-
-          docker run -d \
-            --name healthme-backend \
-            --restart unless-stopped \
-            --network host \
-            --env-file "$ENV_FILE" \
-            "$IMAGE_URI"
-
-          PRODUCTION_OK=false
-          for i in $(seq 1 45); do
-            if curl -fsS -o /dev/null http://127.0.0.1:8090; then
-              PRODUCTION_OK=true
-              break
-            fi
-            sleep 2
-          done
-
-          if [ "$PRODUCTION_OK" != "true" ]; then
-            echo "Production health check failed. Rolling back."
-            docker logs --tail 200 healthme-backend || true
-            docker rm -f healthme-backend || true
-
-            if [ -n "$OLD_IMAGE" ]; then
-              docker run -d \
-                --name healthme-backend \
-                --restart unless-stopped \
-                --network host \
-                --env-file "$ENV_FILE" \
-                "$OLD_IMAGE"
-            fi
-            exit 1
-          fi
-
-          docker image prune -f
-          echo "Deployment completed successfully."
-          EOF
+          echo "Deployment timed out"
+          exit 1
