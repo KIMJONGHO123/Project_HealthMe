@@ -1,0 +1,15 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: healthme-backend
+
+    ports:
+      - "8090:8090"
+
+    env_file:
+      - .env.docker.local
+
+    restart: unless-stopped
