@@ -94,7 +94,7 @@
 
 ## MySQL 동시성 확인
 
-2026-11-12, 로컬 MySQL 전용 DB `healthme_test`(테이블은 테스트가 생성·삭제), PortOne 대역. 테스트: `PaymentRecoveryConcurrencyTest` (`DB_PASSWORD` 환경 변수가 있을 때만 실행).
+2026-11-12, 로컬 MySQL 전용 DB `healthme_test`(테이블은 테스트가 생성·삭제), PortOne 대역. 테스트: `PaymentRecoveryConcurrencyTest` (환경 변수 `RUN_MYSQL_CONCURRENCY_TEST=true`일 때만 실행, CI에서는 건너뜀).
 
 회차마다 "결제 완료 + PENDING" 주문 1건을 만들고, 완료 요청 20개와 보정 배치 1개를 `CountDownLatch`로 같은 순간에 출발시켰다. 50회 반복.
 
@@ -152,9 +152,11 @@ EVIDENCE errors=0 stock 1000->950 sales 0->50 userPurchaseAmount 0->485000 expec
 
 결과 XML: `build/test-results/test/TEST-com.example.healthme.payment.PendingRecoveryAfterTest.xml` (이 폴더의 `after-junit-result.xml`은 2026-11-12 실행본 사본, `concurrency-junit-result.xml`은 MySQL 동시성 테스트 실행본 사본)
 
-MySQL 동시성 테스트는 `CREATE DATABASE healthme_test;` 후 환경 변수 `DB_PASSWORD`를 설정한 터미널에서 실행한다.
+MySQL 동시성 테스트는 `CREATE DATABASE healthme_test;` 후 실행한다.
 
 ```powershell
+$env:RUN_MYSQL_CONCURRENCY_TEST = "true"
+$env:DB_PASSWORD = "<로컬 MySQL 비밀번호>"
 .\gradlew.bat test --tests '*PaymentRecoveryConcurrencyTest*' --console=plain
 ```
 

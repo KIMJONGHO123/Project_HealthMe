@@ -56,12 +56,12 @@ import static org.mockito.Mockito.doReturn;
  *
  * 락 동작은 DB마다 다르므로 H2가 아닌 실제 MySQL의 전용 DB(healthme_test)에서 실행한다.
  * - 사전 준비: CREATE DATABASE healthme_test;
- * - 실행: 환경 변수 DB_PASSWORD(필요 시 DB_USERNAME)를 설정한 터미널에서
+ * - 실행: 환경 변수 RUN_MYSQL_CONCURRENCY_TEST=true, DB_PASSWORD(필요 시 DB_USERNAME)를 설정한 터미널에서
  *   gradlew test --tests '*PaymentRecoveryConcurrencyTest*'
- * - DB_PASSWORD가 없으면 이 테스트는 건너뛴다.
+ * - RUN_MYSQL_CONCURRENCY_TEST=true가 없으면 건너뛴다. CI(DB_PASSWORD는 있지만 healthme_test는 없음)에서도 실행되지 않는다.
  * - 접속 주소는 healthme_test로 고정되어 있으며, 테이블은 테스트 시작 시 생성되고 종료 시 삭제된다.
  */
-@EnabledIfEnvironmentVariable(named = "DB_PASSWORD", matches = ".+")
+@EnabledIfEnvironmentVariable(named = "RUN_MYSQL_CONCURRENCY_TEST", matches = "true")
 @DataJpaTest(properties = {
         "spring.config.location=optional:classpath:/payment-test-isolated.properties",
         "spring.datasource.url=jdbc:mysql://localhost:3306/healthme_test?serverTimezone=Asia/Seoul",
