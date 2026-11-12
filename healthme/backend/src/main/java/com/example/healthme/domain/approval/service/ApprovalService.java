@@ -156,6 +156,49 @@ public class ApprovalService {
         }
     }
 
+    /**
+     * 보정 배치용: 결제는 완료됐지만 PAID가 되지 못한 PENDING 주문 1건을 PortOne에 재조회해 정리한다.
+     * 주문마다 별도 트랜잭션으로 실행되며, 완료 요청과 같은 검증·확정 로직과 주문 비관적 락을 사용한다.
+     *
+     * @param expireBefore 이 시각 이전에 생성됐는데 PortOne에 결제 완료 건이 없으면 미결제 주문으로 만료(FAILED) 처리
+     */
+    @Transactional(noRollbackFor = PaymentValidationException.class)
+    public PaymentRecoveryResult recoverPendingPayment(String merchantUid, LocalDateTime expireBefore) {
+        // 외부 API 호출은 주문 락을 잡기 전에 수행한다. 조회 오류는 예외로 전파되어 다음 배치에서 재시도한다.
+        Optional<PortOnePaymentDto> paidPayment = portOneClient.findPaidPaymentByMerchantUid(merchantUid);
+
+        ApprovalOrder order = approvalOrderRepository.findByMerchantUidForUpdate(merchantUid).orElse(null);
+        if (order == null || !STATUS_PENDING.equals(order.getStatus())) {
+            // 그 사이 완료 요청 등 다른 경로가 먼저 처리한 주문
+            return PaymentRecoveryResult.ALREADY_PROCESSED;
+        }
+
+        if (paidPayment.isEmpty()) {
+            if (order.getOrderDate() != null && order.getOrderDate().isBefore(expireBefore)) {
+                order.setStatus(STATUS_FAILED);
+                return PaymentRecoveryResult.EXPIRED;
+            }
+            return PaymentRecoveryResult.NOT_PAID_YET;
+        }
+
+        PortOnePaymentDto portOnePayment = paidPayment.get();
+        User orderOwner = findCurrentUser(order.getUserid());
+        try {
+            validatePaidPaymentForOrder(order, portOnePayment, orderOwner);
+            confirmPaidOrder(order, portOnePayment, orderOwner);
+            log.info("[Payment recovered] orderId={}, merchantUid={}, impUid={}",
+                    order.getOrderId(), merchantUid, portOnePayment.getImpUid());
+            return PaymentRecoveryResult.RECOVERED_PAID;
+        } catch (PaymentValidationException e) {
+            log.warn("[Payment recovery validation failed] merchantUid={}, impUid={}, reason={}",
+                    merchantUid, portOnePayment.getImpUid(), e.getMessage());
+            markInvalidPayment(order, portOnePayment, e.getMessage());
+            return STATUS_CANCELLED.equals(order.getStatus())
+                    ? PaymentRecoveryResult.CANCELLED
+                    : PaymentRecoveryResult.REVIEW_REQUIRED;
+        }
+    }
+
     @Transactional(readOnly = true)
     public AddressUpdate getDefaultAddressByUserId(Long userId) {
         User user = userRepository.findById(userId)
@@ -275,14 +318,21 @@ public class ApprovalService {
         if (!requestDto.getImpUid().equals(portOnePayment.getImpUid())) {
             throw new PaymentValidationException("PortOne 결제번호가 일치하지 않습니다.");
         }
+        if (!requestDto.getMerchantUid().equals(portOnePayment.getMerchantUid())) {
+            throw new PaymentValidationException("주문번호가 일치하지 않습니다.");
+        }
+        validatePaidPaymentForOrder(order, portOnePayment, currentUser);
+    }
+
+    /** 완료 요청과 보정 배치가 함께 쓰는 검증: PortOne 결제정보가 이 주문의 정상 결제인지 확인한다. */
+    private void validatePaidPaymentForOrder(ApprovalOrder order, PortOnePaymentDto portOnePayment, User orderOwner) {
         if (!portOnePayment.isPaid()) {
             throw new PaymentValidationException("결제가 완료된 상태가 아닙니다.");
         }
-        if (!requestDto.getMerchantUid().equals(portOnePayment.getMerchantUid())
-                || !order.getMerchantUid().equals(portOnePayment.getMerchantUid())) {
+        if (!order.getMerchantUid().equals(portOnePayment.getMerchantUid())) {
             throw new PaymentValidationException("주문번호가 일치하지 않습니다.");
         }
-        if (!currentUser.getUserid().equals(order.getUserid())) {
+        if (!orderOwner.getUserid().equals(order.getUserid())) {
             throw new PaymentValidationException("현재 사용자의 주문이 아닙니다.");
         }
         if (!STATUS_PENDING.equals(order.getStatus())) {
@@ -294,7 +344,7 @@ public class ApprovalService {
         if (!isBlank(portOnePayment.getCurrency()) && !"KRW".equals(portOnePayment.getCurrency())) {
             throw new PaymentValidationException("결제 통화가 KRW가 아닙니다.");
         }
-        if (approvalOrderRepository.existsByPaymentImpUid(requestDto.getImpUid())) {
+        if (approvalOrderRepository.existsByPaymentImpUid(portOnePayment.getImpUid())) {
             throw new PaymentValidationException("이미 처리된 PortOne 결제번호입니다.");
         }
     }

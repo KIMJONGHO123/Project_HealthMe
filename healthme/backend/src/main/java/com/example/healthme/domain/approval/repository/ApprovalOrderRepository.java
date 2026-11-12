@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +21,8 @@ public interface ApprovalOrderRepository extends JpaRepository<ApprovalOrder, Lo
     boolean existsByMerchantUid(String merchantUid);
 
     boolean existsByPaymentImpUid(String paymentImpUid);
+
+    List<ApprovalOrder> findTop100ByStatusAndOrderDateBeforeOrderByOrderDateAsc(String status, LocalDateTime before);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from ApprovalOrder o where o.merchantUid = :merchantUid")

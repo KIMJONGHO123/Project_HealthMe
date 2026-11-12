@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class PortOneClient {
@@ -71,7 +72,39 @@ public class PortOneClient {
             );
         }
 
-        JsonNode payment = requireSuccess(root);
+        return toPaymentDto(requireSuccess(root));
+    }
+
+    /**
+     * 주문번호(merchant_uid)로 결제 완료(paid) 건을 조회한다.
+     * 서버가 결제번호(imp_uid)를 받지 못한 PENDING 주문을 보정할 때 사용한다.
+     * PortOne에 결제 완료 건이 없으면(404) 빈 값을 반환한다.
+     */
+    public Optional<PortOnePaymentDto> findPaidPaymentByMerchantUid(String merchantUid) {
+        String accessToken = getAccessToken();
+        JsonNode root;
+        try {
+            root = restClient.get()
+                    .uri(baseUrl + "/payments/find/{merchantUid}/paid?include_sandbox={includeSandbox}",
+                            merchantUid, includeSandbox)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            throw new IllegalStateException(
+                    "PortOne payment lookup by merchantUid failed. merchantUid=" + merchantUid
+                            + ", status=" + e.getStatusCode()
+                            + ", body=" + e.getResponseBodyAsString(),
+                    e
+            );
+        }
+        return Optional.of(toPaymentDto(requireSuccess(root)));
+    }
+
+    private PortOnePaymentDto toPaymentDto(JsonNode payment) {
         return PortOnePaymentDto.builder()
                 .impUid(payment.path("imp_uid").asText(null))
                 .merchantUid(payment.path("merchant_uid").asText(null))
